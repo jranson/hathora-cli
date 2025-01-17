@@ -264,3 +264,93 @@ func handleNewVersionAvailable(currentVersion string) {
 		zap.L().Warn("Version " + release.TagName + " is available for download.")
 	}
 }
+
+// NormalizeArgs accepts an args slice (e.g., os.Args) and transforms it to
+// collapse any Boolean flags with separate value parameters into a single
+// parameter=value arg. This allows users to provide arg lists like:
+// --idle-timeout-enabled false
+// which would normally ignore the provided value and always register as True
+// since the required syntax for bools is strict: --idle-timeout-enabled=false
+// In all cases, a new slice is returned.
+func NormalizeArgs(cmd *cli.Command, args []string) []string {
+	l := len(args)
+	if l == 0 {
+		return make([]string, 0)
+	}
+	// this returns a map of boolean flag names from the command tree
+	bfl := getBooleanFlags(cmd)
+	if len(bfl) == 0 {
+		out := make([]string, l)
+		copy(out, args)
+		return out
+	}
+	// this checks if there are any boolean flags provided by the user where
+	// the next flag is a value instead of a flag. in those cases, this will
+	// merge the elements. so ["--my-boolean", "true"] becomes ["--my-boolean=true"]
+	var skipNext bool
+	out := make([]string, 0, l)
+	for i, arg := range args {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		out = append(out, arg)
+		if !strings.HasPrefix(arg, "-") {
+			continue
+		}
+		// this skips any args that are flag values and not flag names
+		bareArg := strings.TrimPrefix(strings.TrimPrefix(arg, "-"), "-")
+		if _, ok := bfl[bareArg]; !ok {
+			continue
+		}
+		// don't try to normalize the last element, since there isn't a Next
+		// nor try if the next element is a new flag name
+		if i >= l-1 || strings.HasPrefix(args[i+1], "-") {
+			continue
+		}
+		// at this point, it's a boolean arg followed by a value,
+		// so they are merged into a single element with an = delimiter
+		out[len(out)-1] = fmt.Sprintf("%s=%s", arg, args[i+1])
+		skipNext = true
+	}
+	return out
+}
+
+func getBooleanFlags(cmd *cli.Command) map[string]any {
+	out := make(map[string]any)
+	getBooleanFlagsIter(cmd, out)
+	return out
+}
+
+func getBooleanFlagsIter(cmd *cli.Command, dst map[string]any) {
+	// skips over help, as it can have a param in the next arg
+	//(e.g., --help deploy)
+	omit := func(names []string) bool {
+		for _, name := range names {
+			if name == "help" {
+				return true
+			}
+		}
+		return false
+	}
+	// iterate and register the current Command's Flag names
+	for _, flag := range cmd.Flags {
+		// skip non-bools
+		if _, ok := flag.(*cli.BoolFlag); !ok {
+			continue
+		}
+		// skip any explicit omissions
+		fns := flag.Names()
+		if omit(fns) {
+			continue
+		}
+		// otherwise add to the output
+		for _, name := range fns {
+			dst[name] = nil
+		}
+	}
+	// send this command's subcommands through the iterator
+	for _, sub := range cmd.Commands {
+		getBooleanFlagsIter(sub, dst)
+	}
+}
