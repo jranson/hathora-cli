@@ -324,7 +324,7 @@ func getBooleanFlags(cmd *cli.Command) map[string]any {
 
 func getBooleanFlagsIter(cmd *cli.Command, dst map[string]any) {
 	// skips over help, as it can have a param in the next arg
-	//(e.g., --help deploy)
+	// (e.g., --help deploy)
 	omit := func(names []string) bool {
 		for _, name := range names {
 			if name == "help" {
