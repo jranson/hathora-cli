@@ -290,32 +290,40 @@ func NormalizeArgs(cmd *cli.Command, args []string) []string {
 	var skipNext bool
 	out := make([]string, 0, l)
 	for i, arg := range args {
+		// this skips whenever the previous arg just merged the current into it
 		if skipNext {
 			skipNext = false
 			continue
 		}
+		// this adds the current arg to the output
 		out = append(out, arg)
+		// this moves on when the current arg is not a flag name
 		if !strings.HasPrefix(arg, "-") {
 			continue
 		}
-		// this skips any args that are flag values and not flag names
-		bareArg := strings.TrimPrefix(strings.TrimPrefix(arg, "-"), "-")
-		if _, ok := bfl[bareArg]; !ok {
+		// this provides the flag name without a leading - or --
+		flagName := strings.TrimPrefix(strings.TrimPrefix(arg, "-"), "-")
+		// this skips any flag names that are not boolean
+		if _, ok := bfl[flagName]; !ok {
 			continue
 		}
-		// don't try to normalize the last element, since there isn't a Next
+		// this skips when the iterator is on the last arg or whenever it's not
+		// the last but another flag name arg immediately follows this one
 		// nor try if the next element is a new flag name
 		if i >= l-1 || strings.HasPrefix(args[i+1], "-") {
 			continue
 		}
-		// at this point, it's a boolean arg followed by a value,
-		// so they are merged into a single element with an = delimiter
+		// the current arg must be a boolean flag name followed by a value arg.
+		// this therefore merges them into a single element with an = delimiter
+		// by updating the just-appended element and skipping the next element
 		out[len(out)-1] = fmt.Sprintf("%s=%s", arg, args[i+1])
 		skipNext = true
 	}
 	return out
 }
 
+// getBooleanFlags iterates the command tree and returns a lookup table of all
+// boolean flags
 func getBooleanFlags(cmd *cli.Command) map[string]any {
 	out := make(map[string]any)
 	getBooleanFlagsIter(cmd, out)
